@@ -90,6 +90,11 @@
   }
   .scoreItem { display: flex; justify-content: space-between; padding: 4px 8px; background: rgba(255,255,255,0.04); border-radius: 6px; }
 
+  .nameInputBox {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px; width: 240px; color: var(--text); font-size: 16px; text-align: center; outline: none;
+  }
+
   #controls{
     position:fixed; left:0; right:0; bottom:0;
     padding:10px 16px calc(14px + env(safe-area-inset-bottom,0px));
@@ -180,7 +185,9 @@
 <div class="overlay" id="gameover" hidden>
   <h1>Game Over</h1>
   <p>Final Score: <span id="finalScore">0</span></p>
-  <button id="restartBtn">Restart</button>
+  <input type="text" id="playerName" class="nameInputBox" placeholder="Enter Your Name" maxlength="15">
+  <button id="saveScoreBtn" class="playBtn" style="width:240px; padding:12px;">💾 Save Score</button>
+  <button id="restartBtn" class="neutralBtn" style="width:240px; padding:10px;">Restart</button>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -220,18 +227,18 @@
     "10. Toy Block"
   ];
 
-  // Local PNG texture file paths (textures folder mein rakhein)
+  // Sabhi designs ke liye temporarily wood.png set kar diya gaya hai taake blank error na aaye
   const textureURLs = [
     "textures/wood.png",
-    "textures/red.png",
-    "textures/steel.png",
-    "textures/stone.png",
-    "textures/ice.png",
-    "textures/gold.png",
-    "textures/neon.png",
-    "textures/pastel.png",
-    "textures/flame.png",
-    "textures/toy.png"
+    "textures/wood.png",
+    "textures/wood.png",
+    "textures/wood.png",
+    "textures/wood.png",
+    "textures/wood.png",
+    "textures/wood.png",
+    "textures/wood.png",
+    "textures/wood.png",
+    "textures/wood.png"
   ];
 
   let board=emptyBoard(), current=null, nextType=randomType();
@@ -340,8 +347,8 @@
   function endGame(){
     running=false; over=true;
     beep(150,0.4);
-    saveScore(score);
     document.getElementById('finalScore').textContent=score;
+    document.getElementById('playerName').value = localStorage.getItem('tetris3d_player') || '';
     document.getElementById('gameover').hidden=false;
   }
 
@@ -372,7 +379,7 @@
     document.getElementById('gameover').hidden=true;
   }
 
-  // --- Texture Loader for Local PNG Files ---
+  // --- Texture Loader ---
   const texLoader = new THREE.TextureLoader();
   const matCache = {};
 
@@ -384,11 +391,11 @@
       texture.wrapT = THREE.RepeatWrapping;
 
       let m;
-      if(design === 3 || design === 6){ // Metallic / Gold
+      if(design === 3 || design === 6){
         m = new THREE.MeshStandardMaterial({map: texture, metalness: 0.85, roughness: 0.25});
-      } else if(design === 5){ // Glowing Ice
+      } else if(design === 5){
         m = new THREE.MeshPhysicalMaterial({map: texture, transparent: true, opacity: 0.88, roughness: 0.1, transmission: 0.6});
-      } else if(design === 7){ // Neon
+      } else if(design === 7){
         m = new THREE.MeshBasicMaterial({map: texture});
       } else {
         m = new THREE.MeshStandardMaterial({map: texture, roughness: 0.5});
@@ -576,12 +583,13 @@
     }
   }
 
-  async function saveScore(newScore){
+  async function saveScore(playerName, newScore){
     if(newScore <= 0) return;
     try{
       let list = await getLeaderboard();
-      list.push(newScore);
-      list.sort((a,b) => b - a);
+      // Format: { name, score } objects ya simple scores handle karein
+      list.push({ name: playerName || "Player", score: newScore });
+      list.sort((a,b) => (b.score || b) - (a.score || a));
       list = list.slice(0, 20);
 
       await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}`, {
@@ -599,7 +607,9 @@
 
   async function getBest(){
     const list = await getLeaderboard();
-    return list.length > 0 ? list[0] : 0;
+    if(list.length === 0) return 0;
+    const first = list[0];
+    return typeof first === 'object' ? (first.score || 0) : first;
   }
 
   async function renderLeaderboard(){
@@ -611,10 +621,18 @@
       listEl.innerHTML = '<div style="text-align:center; color:var(--muted); padding:20px;">No scores yet!</div>';
       return;
     }
-    list.forEach((s, idx) => {
+    list.forEach((itemData, idx) => {
       const item = document.createElement('div');
       item.className = 'scoreItem';
-      item.innerHTML = `<span><b>#${idx + 1}</b></span> <span>${s} pts</span>`;
+      let name = "Player";
+      let s = 0;
+      if(typeof itemData === 'object' && itemData !== null){
+        name = itemData.name || "Player";
+        s = itemData.score || 0;
+      } else {
+        s = itemData;
+      }
+      item.innerHTML = `<span><b>#${idx + 1}</b> ${name}</span> <span>${s} pts</span>`;
       listEl.appendChild(item);
     });
   }
@@ -719,9 +737,30 @@
     document.getElementById('mainMenu').hidden = false;
   });
 
+  document.getElementById('saveScoreBtn').addEventListener('click', async ()=>{
+    const nameInput = document.getElementById('playerName').value.trim() || "Y.Ali";
+    try{ localStorage.setItem('tetris3d_player', nameInput); }catch(e){}
+    
+    const btn = document.getElementById('saveScoreBtn');
+    btn.textContent = "Saving...";
+    btn.disabled = true;
+
+    await saveScore(nameInput, score);
+    
+    btn.textContent = "Saved Successfully!";
+    setTimeout(() => {
+      document.getElementById('gameover').hidden = true;
+      btn.textContent = "💾 Save Score";
+      btn.disabled = false;
+      renderLeaderboard();
+      document.getElementById('leaderboardPanel').hidden = false;
+    }, 1000);
+  });
+
   document.getElementById('restartBtn').addEventListener('click', resetGame);
   updateSettingsUI();
 })();
 </script>
 </body>
 </html>
+```[cite: 1]
